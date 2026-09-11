@@ -1,0 +1,1 @@
+import{n as e,r as t}from"./rolldown-runtime-C60lm6uB.js";import{i as n}from"./framework-D_rUT4EX.js";var r=e({useRefWithInit:()=>o}),i=t(n(),1),a={};function o(e,t){let n=i.useRef(a);return n.current===a&&(n.current=e(t)),n}export{r as n,o as t};

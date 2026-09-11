@@ -1,0 +1,10 @@
+.env
+.venv/
+.venv312/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# all nested node_modules
+node_modules/
+/node_modules/**

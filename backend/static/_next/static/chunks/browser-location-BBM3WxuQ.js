@@ -1,0 +1,1 @@
+import{r as e}from"./rolldown-runtime-C60lm6uB.js";import{i as t}from"./framework-D_rUT4EX.js";var n=e(t(),1),r=()=>()=>{},i=()=>null;function a(){return(0,n.useSyncExternalStore)(r,()=>window.location.pathname,i)}function o(){return(0,n.useSyncExternalStore)(r,()=>window.location.search,i)}export{o as n,a as t};

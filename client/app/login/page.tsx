@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from '@/components/static-link';
 import { ArrowRight, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { BackButton } from '@/components/back-button';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -11,37 +12,89 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { api, setToken } from '@/lib/api';
+import { api } from '@/lib/api';
+import { useLocationSearch } from '@/lib/browser-location';
+import { supabase } from '@/lib/supabase';
+
+type Role = 'client' | 'expert' | 'admin';
 
 export default function LoginPage() {
+  const search = useLocationSearch();
+  const searchParams = new URLSearchParams(search ?? '');
+  const resetRequested = searchParams.get('reset') === '1';
+  const recovery = searchParams.get('recovery') === '1';
+  const passwordUpdated = searchParams.get('passwordUpdated') === '1';
+  const confirmed = searchParams.get('confirmed') === '1';
   const [visible, setVisible] = useState(false);
-  const [role, setRole] = useState<'client' | 'expert' | 'admin'>('client');
-  const [identifier, setIdentifier] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
   async function submit(event: { preventDefault: () => void }) {
     event.preventDefault();
     setError('');
+    setMessage('');
     setLoading(true);
     try {
-      const result = await api<{ access_token: string; role: string }>(
-        '/auth/login',
-        { method: 'POST', body: JSON.stringify({ identifier, password }) },
-      );
-      if (result.role !== role) throw new Error(`This account is a ${result.role} account.`);
-      setToken(result.access_token);
-      window.location.assign(role === 'client' ? '/dashboard' : `/${role}`);
+      if (resetRequested) {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+          email.trim().toLowerCase(),
+          { redirectTo: `${window.location.origin}/login?recovery=1` },
+        );
+        if (resetError) throw resetError;
+        setMessage(
+          'If an account exists for that email, Supabase has sent a password reset link.',
+        );
+        return;
+      }
+
+      if (recovery) {
+        const { error: updateError } = await supabase.auth.updateUser({
+          password,
+        });
+        if (updateError) throw updateError;
+        await supabase.auth.signOut();
+        window.location.assign('/login?passwordUpdated=1');
+        return;
+      }
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      if (signInError) throw signInError;
+
+      const profile = await api<{ role: Role }>('/auth/me');
+      const destination: Record<Role, string> = {
+        client: '/dashboard',
+        expert: '/expert',
+        admin: '/admin',
+      };
+      window.location.assign(destination[profile.role]);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Unable to sign in.');
+      setError(
+        reason instanceof Error ? reason.message : 'Unable to continue.',
+      );
     } finally {
       setLoading(false);
     }
   }
+
+  const title = recovery
+    ? 'Choose a new password'
+    : resetRequested
+      ? 'Reset your password'
+      : 'Welcome back';
+  const description = recovery
+    ? 'Enter a new password for your Supabase account.'
+    : resetRequested
+      ? 'We will send a secure recovery link to your email.'
+      : 'Sign in securely and we will open the right workspace for your account.';
+
   return (
     <div className="grid min-h-screen bg-[#f7f8fa] lg:grid-cols-[.9fr_1.1fr]">
       <aside className="relative hidden overflow-hidden bg-[#172c4f] p-12 text-white lg:flex lg:flex-col">
@@ -76,100 +129,130 @@ export default function LoginPage() {
             <ShieldCheck />
             <strong>KaziLedger</strong>
           </Link>
+          <BackButton href="/" label="Back home" className="mb-4" />
           <Card className="border-0 bg-white shadow-xl shadow-slate-200/50">
             <CardHeader className="p-6 pb-2 sm:p-8 sm:pb-3">
-              <CardTitle className="text-2xl">Welcome back</CardTitle>
-              <CardDescription>
-                Choose your workspace and sign in securely.
-              </CardDescription>
+              <CardTitle className="text-2xl">{title}</CardTitle>
+              <CardDescription>{description}</CardDescription>
             </CardHeader>
             <CardContent className="p-6 pt-4 sm:p-8 sm:pt-4">
-              <div className="grid grid-cols-3 gap-2 rounded-xl bg-slate-100 p-1">
-                {(['client', 'expert', 'admin'] as const).map((item) => (
-                  <button
-                    key={item}
-                    onClick={() => setRole(item)}
-                    className={`rounded-lg px-2 py-2 text-xs font-semibold capitalize transition ${role === item ? 'bg-white text-[#1f3864] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-              <form
-                className="mt-6 space-y-4"
-                onSubmit={submit}
-              >
-                <div className="space-y-2">
-                  <Label htmlFor="identifier">Email or phone</Label>
-                  <Input
-                    id="identifier"
-                    required
-                    placeholder="you@example.com"
-                    className="h-11"
-                    value={identifier}
-                    onChange={(event) => setIdentifier(event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <Label htmlFor="password">Password</Label>
-                    <Link
-                      href="/login?reset=1"
-                      className="text-xs font-medium text-[#2563eb]"
-                    >
-                      Forgot password?
-                    </Link>
-                  </div>
-                  <div className="relative">
+              {(passwordUpdated || confirmed) && !error && (
+                <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
+                  {passwordUpdated
+                    ? 'Your password was updated. Sign in with the new password.'
+                    : 'Your email is confirmed. You can now sign in.'}
+                </p>
+              )}
+              <form className="mt-6 space-y-4" onSubmit={submit}>
+                {!recovery && (
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
                     <Input
-                      id="password"
+                      id="email"
+                      type="email"
+                      autoComplete="email"
                       required
-                      type={visible ? 'text' : 'password'}
-                      placeholder="Enter your password"
-                      className="h-11 pr-10"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="you@example.com"
+                      className="h-11"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setVisible(!visible)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    >
-                      <span className="sr-only">
-                        Toggle password visibility
-                      </span>
-                      {visible ? (
-                        <EyeOff className="size-4" />
-                      ) : (
-                        <Eye className="size-4" />
-                      )}
-                    </button>
                   </div>
-                </div>
-                <label
-                  htmlFor="remember"
-                  className="flex items-center gap-2 text-sm text-slate-500"
-                >
-                  <Checkbox id="remember" />
-                  Keep me signed in on this device
-                </label>
+                )}
+                {!resetRequested && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <Label htmlFor="password">
+                        {recovery ? 'New password' : 'Password'}
+                      </Label>
+                      {!recovery && (
+                        <Link
+                          href="/login?reset=1"
+                          className="text-xs font-medium text-[#2563eb]"
+                        >
+                          Forgot password?
+                        </Link>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        required
+                        minLength={8}
+                        autoComplete={
+                          recovery ? 'new-password' : 'current-password'
+                        }
+                        type={visible ? 'text' : 'password'}
+                        placeholder={
+                          recovery
+                            ? 'At least 8 characters'
+                            : 'Enter your password'
+                        }
+                        className="h-11 pr-10"
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setVisible(!visible)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      >
+                        <span className="sr-only">
+                          Toggle password visibility
+                        </span>
+                        {visible ? (
+                          <EyeOff className="size-4" />
+                        ) : (
+                          <Eye className="size-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {message && (
+                  <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
+                    {message}
+                  </p>
+                )}
                 {error && (
-                  <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                  <p
+                    role="alert"
+                    className="rounded-lg bg-red-50 p-3 text-sm text-red-700"
+                  >
                     {error}
                   </p>
                 )}
-                <Button disabled={loading} type="submit" className="h-11 w-full bg-[#1f3864]">
-                  {loading ? 'Signing in…' : `Sign in to ${role} workspace`} <ArrowRight />
+                <Button
+                  disabled={loading}
+                  type="submit"
+                  className="h-11 w-full bg-[#1f3864]"
+                >
+                  {loading
+                    ? 'Please wait…'
+                    : recovery
+                      ? 'Update password'
+                      : resetRequested
+                        ? 'Send reset link'
+                        : 'Sign in'}{' '}
+                  <ArrowRight />
                 </Button>
               </form>
               <p className="mt-6 text-center text-sm text-slate-500">
-                New to KaziLedger?{' '}
-                <Link
-                  href="/register"
-                  className="font-semibold text-[#2563eb]"
-                >
-                  Create an account
-                </Link>
+                {resetRequested || recovery ? (
+                  <Link href="/login" className="font-semibold text-[#2563eb]">
+                    Back to sign in
+                  </Link>
+                ) : (
+                  <>
+                    New to KaziLedger?{' '}
+                    <Link
+                      href="/register"
+                      className="font-semibold text-[#2563eb]"
+                    >
+                      Create an account
+                    </Link>
+                  </>
+                )}
               </p>
             </CardContent>
           </Card>

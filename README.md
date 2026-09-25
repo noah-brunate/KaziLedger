@@ -5,14 +5,108 @@ KaziLedger is a professional-services marketplace for East Africa. It connects c
 ## Included
 
 - React web client built with shadcn/ui and Tailwind CSS
-- FastAPI modular-monolith foundation backed by PostgreSQL
+- Supabase Edge Function API backed by Supabase Postgres
 - Client, expert, and administrator product surfaces
 - Configurable expert timeout, escrow release window, commission rate, and currency
 - Pesapal API 3.0 wallet top-ups, callback/IPN status verification, and sandbox/production switching
 - MTN and Airtel withdrawal model with pending/confirmed transaction states
+- Supabase email/password authentication with database-backed application roles
 - Dynamic permission-ready authorization model, expert availability, assignment audit logs, price-band validation, consent tracking, and sensitive-document boundaries
 
-## Local setup
+## Serverless deployment
+
+The production architecture has only two deployed pieces:
+
+- Vercel hosts the static client from `client/`.
+- Supabase provides Auth, Postgres, and the `api` Edge Function from
+  `supabase/functions/api/`.
+
+The Python application in `backend/` is retained as a legacy local/reference
+implementation. It is not required in production, and no database password or
+server-side Supabase key belongs in Vercel.
+
+### 1. Apply the Supabase schema and deploy the function
+
+From the repository root, authenticate and link the CLI once, then push the
+migrations and function:
+
+```bash
+npx supabase login
+npx supabase link --project-ref cvhpsnljabfilivrfuyq
+npx supabase db push
+npx supabase functions deploy api --project-ref cvhpsnljabfilivrfuyq --use-api
+```
+
+Supabase automatically provides `SUPABASE_URL` and its server-side key to the
+Edge Function. Configure the optional payment and workflow settings as Function
+secrets, never as Vercel variables:
+
+```bash
+npx supabase secrets set --project-ref cvhpsnljabfilivrfuyq \
+  PESAPAL_ENVIRONMENT=sandbox \
+  PESAPAL_CONSUMER_KEY=your-key \
+  PESAPAL_CONSUMER_SECRET=your-secret \
+  PESAPAL_IPN_ID=your-notification-id \
+  PESAPAL_CALLBACK_URL=https://your-project.vercel.app/dashboard/payments \
+  EXPERT_RESPONSE_HOURS=24 \
+  ESCROW_RELEASE_HOURS=72 \
+  PLATFORM_COMMISSION_RATE=0.10
+```
+
+Register this public webhook URL with Pesapal:
+
+```text
+https://cvhpsnljabfilivrfuyq.supabase.co/functions/v1/api/payments/pesapal/ipn
+```
+
+### 2. Deploy only the client to Vercel
+
+Create a Vercel project whose root directory is `client`. Add exactly these
+required environment variables for Production, Preview, and Development:
+
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://cvhpsnljabfilivrfuyq.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
+
+`NEXT_PUBLIC_API_URL` is optional and should normally remain unset. The client
+derives the API endpoint as `/functions/v1/api` on the configured Supabase
+project. Never put a database connection string, database password,
+`service_role` key, or Supabase secret key in Vercel.
+
+In Supabase Dashboard, add the production Vercel domain and any preview/local
+URLs to Authentication → URL Configuration → Redirect URLs. Include `/login`
+so email confirmation and password-recovery links can return to the app.
+
+### 3. Run the client locally
+
+Copy `client/.env.example` to `client/.env`, then run:
+
+```bash
+cd client
+corepack enable
+pnpm install --frozen-lockfile
+pnpm dev --host 127.0.0.1 --port 3000
+```
+
+By default, local development also calls the deployed Supabase Edge Function.
+Set `NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1` only when deliberately
+testing the legacy FastAPI implementation.
+
+### Authentication and authorization
+
+Supabase Auth owns passwords, email confirmation, and browser sessions. The
+Edge Function verifies the access token on every protected request and loads
+the application role from `public.users`. Business tables have row-level
+security enabled without browser-access policies; privileged database access
+stays inside the Edge Function.
+
+Public sign-up can create only `client` or `expert` profiles. To provision an
+administrator, create the account in Supabase Authentication, then set that
+profile's `public.users.role` to `admin` through a trusted administrative
+workflow. Never accept an `admin` role from browser metadata.
+
+## Legacy FastAPI local setup
 
 Run PostgreSQL in Docker, and run the backend and client independently on your machine.
 Prerequisites: Docker with Compose, Python 3.12+, Node.js 22.13+ (the client Dockerfile uses Node 24),
@@ -53,8 +147,10 @@ source .venv/bin/activate
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Keep any existing `.env` instead of overwriting it. The example connects to
-PostgreSQL at `localhost:5431` and enables automatic schema creation and demo seeding.
+Keep any existing `.env` instead of overwriting it. Add the Supabase project URL
+and publishable key to both backend and client environment files. The publishable
+key is safe to use in a browser; never put a Supabase secret or `service_role` key
+in the client.
 
 Start the API from the `backend` directory with the virtual environment activated:
 
@@ -86,8 +182,8 @@ nvm use
 pnpm dev --host 127.0.0.1 --port 3000
 ```
 
-Keep any existing `.env` instead of overwriting it. The example sets
-`NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1`.
+Keep any existing `.env` instead of overwriting it. The example sets the local API
+URL and the KaziLedger Supabase project settings.
 
 Start the web development server from the `client` directory:
 
@@ -116,6 +212,67 @@ The client build automatically replaces `backend/static` with the latest static
 export. Open `http://localhost:8000`; FastAPI serves only that directory while
 preserving `/api/v1`, `/docs`, and `/health`. Restart FastAPI after the first
 build if it was already running without a static directory.
+
+### Legacy Supabase and separate API deployment
+
+The repository includes a Supabase CLI workspace and schema migrations.
+Supabase Auth owns passwords and browser sessions. The browser sends the Supabase
+access token to FastAPI, FastAPI validates it with Supabase Auth, and application
+roles are loaded from `public.users`. The browser does not receive the database
+password or query KaziLedger business tables through the Data API. Row-level
+security is enabled on those tables without public policies.
+
+Initialize and link the workspace once from the repository root:
+
+```bash
+npx supabase login
+npx supabase link --project-ref cvhpsnljabfilivrfuyq
+npx supabase db push
+```
+
+For a serverless FastAPI deployment, use Supabase's **Transaction pooler** connection
+string (port `6543`) rather than the direct database URL. Configure these environment
+variables in the API host; never add their production values to Git:
+
+```dotenv
+APP_ENV=production
+DATABASE_URL=postgresql://postgres.PROJECT_REF:DB_PASSWORD@POOLER_HOST:6543/postgres
+DATABASE_POOL_MODE=transaction
+DATABASE_SSL=true
+SUPABASE_URL=https://cvhpsnljabfilivrfuyq.supabase.co
+SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+CLIENT_URL=https://your-client-domain.example
+CLIENT_URLS=https://your-project.vercel.app
+AUTO_CREATE_SCHEMA=false
+SEED_DEMO_DATA=false
+```
+
+The separate FastAPI deployment described below is retained only for legacy hosting.
+The recommended deployment uses the Supabase Edge Function and does not deploy
+`backend/` to Vercel.
+
+For the legacy split deployment, the client can override its API URL:
+
+```dotenv
+NEXT_PUBLIC_API_URL=https://your-api-domain.example/api/v1
+NEXT_PUBLIC_SUPABASE_URL=https://cvhpsnljabfilivrfuyq.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
+
+The API's `CLIENT_URL` or `CLIENT_URLS` must contain the final Vercel domain so browser
+requests pass CORS. `CORS_ORIGIN_REGEX` can optionally allow a tightly scoped Vercel
+preview-domain pattern.
+
+In Supabase Dashboard, add the final Vercel domain and local development URL to
+Authentication → URL Configuration → Redirect URLs. Include the `/login` path so
+email confirmation and password-recovery links can return to the app. For production
+email delivery, configure custom SMTP; Supabase's default sender is intended for
+testing and is rate-limited.
+
+Public sign-up can create only `client` or `expert` profiles. To provision an admin,
+create the user in Supabase Authentication, then set that profile's `public.users.role`
+to `admin` using the SQL editor or another trusted administrative workflow. Never
+accept an `admin` role from browser metadata.
 
 ### cPanel web deployment (Passenger)
 
@@ -154,8 +311,9 @@ then install dependencies from the application root:
 pip install -r requirements.txt
 ```
 
-Set the cPanel environment variables from `backend/.env.example`, including a strong
-`JWT_SECRET`, the production `DATABASE_URL`, and the production `CLIENT_URL`. For a
+Set the cPanel environment variables from `backend/.env.example`, including the
+Supabase URL and publishable key, production `DATABASE_URL`, and production
+`CLIENT_URL`. For a
 deployed environment set `AUTO_CREATE_SCHEMA=false` and `SEED_DEMO_DATA=false`; apply
 database migrations separately before starting Passenger. Do not use the local PostgreSQL
 credentials or the demo seed in production.
@@ -184,10 +342,9 @@ Use Ctrl+C in each application terminal to stop that server. From `KaziLedger`:
 ./stop-local.sh  # Stop PostgreSQL; preserve database data
 ```
 
-Demo API accounts are `client@kaziledger.local` and `expert@kaziledger.local`; both use
-`LocalDemo123!`. The seeded admin account is `admin@kaziledger.local` with password
-`LocalAdmin123!`. The live workflow panel uses these API accounts and persists actions
-through the backend; the surrounding dashboard cards retain presentation summaries.
+Create development accounts through the registration page so they exist in Supabase
+Auth and receive a linked `public.users` profile. Passwords are never stored by the
+FastAPI application.
 
 To test Pesapal, set `PESAPAL_CONSUMER_KEY`, `PESAPAL_CONSUMER_SECRET`,
 `PESAPAL_IPN_ID`, and a public `PESAPAL_IPN_URL` in `backend/.env`, then restart the API.

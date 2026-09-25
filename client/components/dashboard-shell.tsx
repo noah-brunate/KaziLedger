@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from '@/components/static-link';
 import {
   Activity,
@@ -55,38 +55,54 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkflowPanel } from '@/components/workflow-panel';
 import type { WorkspaceSection } from '@/components/workflow-panel';
-import { clearToken } from '@/lib/api';
+import { BackButton } from '@/components/back-button';
+import { api, ApiError, signOut } from '@/lib/api';
 import { useLocationPathname } from '@/lib/browser-location';
 
 type Role = 'client' | 'expert' | 'admin';
 type NavItem = { label: string; href: string; icon: typeof Home };
+type AccountProfile = {
+  id: string;
+  email?: string;
+  phone?: string;
+  role: Role;
+  client_type: string;
+};
 
 const profiles = {
   client: {
-    name: 'Brian Mugisha',
-    short: 'BM',
-    type: 'SME client',
-    greeting: 'Brian',
+    type: 'Client account',
     subtitle: 'Track requests, quotes, payments and delivery.',
     accent: '#0f6e56',
   },
   expert: {
-    name: 'Grace Nansubuga',
-    short: 'GN',
-    type: 'Verified expert',
-    greeting: 'Grace',
+    type: 'Expert account',
     subtitle: 'Manage assignments, delivery and your wallet.',
     accent: '#2563eb',
   },
   admin: {
-    name: 'Amina Kato',
-    short: 'AK',
-    type: 'Super Admin',
-    greeting: 'Amina',
+    type: 'Administrator account',
     subtitle: 'Review risk, operations and platform performance.',
     accent: '#d97706',
   },
 };
+
+function accountLabel(account?: AccountProfile): string {
+  return account?.email ?? account?.phone ?? 'Signed-in account';
+}
+
+function accountInitials(account?: AccountProfile): string {
+  const label = accountLabel(account).split('@')[0];
+  const parts = label.split(/[._\-\s]+/).filter(Boolean);
+  const initials =
+    parts.length > 1
+      ? parts
+          .slice(0, 2)
+          .map((part) => part[0])
+          .join('')
+      : label.slice(0, 2);
+  return initials.toUpperCase();
+}
 
 const navigation: Record<Role, NavItem[]> = {
   client: [
@@ -96,7 +112,11 @@ const navigation: Record<Role, NavItem[]> = {
       href: '/dashboard/requests',
       icon: BriefcaseBusiness,
     },
-    { label: 'Wallet & payments', href: '/dashboard/payments', icon: WalletCards },
+    {
+      label: 'Wallet & payments',
+      href: '/dashboard/payments',
+      icon: WalletCards,
+    },
     { label: 'Documents', href: '/dashboard/documents', icon: FileCheck2 },
   ],
   expert: [
@@ -124,14 +144,22 @@ const navigation: Record<Role, NavItem[]> = {
 
 function Sidebar({
   role,
+  account,
   mobileClose,
 }: {
   role: Role;
+  account?: AccountProfile;
   mobileClose?: () => void;
 }) {
   const locationPathname = useLocationPathname();
   const pathname = (locationPathname ?? '').replace(/\/$/, '') || '/';
   const profile = profiles[role];
+
+  async function logOut(event: React.MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    await signOut().catch(() => undefined);
+    window.location.assign('/login');
+  }
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#162c50] text-white">
       <Link
@@ -176,7 +204,13 @@ function Sidebar({
           Account
         </p>
         <Link
-          href={role === 'client' ? '/dashboard/settings' : role === 'expert' ? '/expert/settings' : '/admin/settings'}
+          href={
+            role === 'client'
+              ? '/dashboard/settings'
+              : role === 'expert'
+                ? '/expert/settings'
+                : '/admin/settings'
+          }
           onClick={mobileClose}
           className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${pathname === (role === 'client' ? '/dashboard/settings' : role === 'expert' ? '/expert/settings' : '/admin/settings') ? 'bg-white/12 font-medium text-white' : 'text-blue-100/70 hover:bg-white/8 hover:text-white'}`}
         >
@@ -187,18 +221,18 @@ function Sidebar({
       <div className="shrink-0 border-t border-white/10 p-3">
         <Link
           href="/login"
-          onClick={() => clearToken()}
+          onClick={logOut}
           className="flex items-center gap-3 rounded-xl p-2 hover:bg-white/8"
         >
           <span
             className="grid size-9 place-items-center rounded-full text-sm font-semibold"
             style={{ background: profile.accent }}
           >
-            {profile.short}
+            {accountInitials(account)}
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">
-              {profile.name}
+              {accountLabel(account)}
             </span>
             <span className="block truncate text-xs text-blue-200/55">
               {profile.type}
@@ -744,12 +778,16 @@ export function DashboardShell({
   pageTitle,
   pageSubtitle,
   section,
+  backHref,
+  backLabel,
   children,
 }: {
   workspace: Role;
   pageTitle?: string;
   pageSubtitle?: string;
   section?: WorkspaceSection;
+  backHref?: string;
+  backLabel?: string;
   children?: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -757,8 +795,13 @@ export function DashboardShell({
   const [requestOpen, setRequestOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [notice, setNotice] = useState('');
+  const [account, setAccount] = useState<AccountProfile>();
   const role = workspace;
   const profile = profiles[role];
+  const workspaceHome = role === 'client' ? '/dashboard' : `/${role}`;
+  const resolvedBackHref = backHref ?? (pageTitle ? workspaceHome : '/');
+  const resolvedBackLabel =
+    backLabel ?? (pageTitle ? 'Back to overview' : 'Back home');
   const action =
     role === 'client'
       ? 'New service request'
@@ -769,10 +812,41 @@ export function DashboardShell({
     () => (search ? `Showing matches for “${search}”` : ''),
     [search],
   );
+
+  useEffect(() => {
+    let active = true;
+    void api<AccountProfile>('/auth/me')
+      .then((currentAccount) => {
+        if (!active) return;
+        if (currentAccount.role !== role) {
+          const destination: Record<Role, string> = {
+            client: '/dashboard',
+            expert: '/expert',
+            admin: '/admin',
+          };
+          window.location.replace(destination[currentAccount.role]);
+          return;
+        }
+        setAccount(currentAccount);
+      })
+      .catch(async (reason: unknown) => {
+        if (!active) return;
+        if (reason instanceof ApiError && reason.status !== 401) {
+          setNotice('We could not load your account details. Please refresh.');
+          return;
+        }
+        await signOut().catch(() => undefined);
+        window.location.replace('/login');
+      });
+    return () => {
+      active = false;
+    };
+  }, [role]);
+
   return (
     <div className="min-h-screen bg-[#f7f8fa] text-[#202936]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 lg:block">
-        <Sidebar role={role} />
+        <Sidebar role={role} account={account} />
       </aside>
       <div className="lg:pl-64">
         <header className="sticky top-0 z-30 flex h-18 items-center gap-3 border-b bg-white/90 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
@@ -790,9 +864,18 @@ export function DashboardShell({
               className="w-[min(86vw,280px)] border-0 p-0"
             >
               <SheetTitle className="sr-only">{role} navigation</SheetTitle>
-              <Sidebar role={role} mobileClose={() => setMobileOpen(false)} />
+              <Sidebar
+                role={role}
+                account={account}
+                mobileClose={() => setMobileOpen(false)}
+              />
             </SheetContent>
           </Sheet>
+          <BackButton
+            href={resolvedBackHref}
+            label={resolvedBackLabel}
+            className="-ml-1 shrink-0"
+          />
           <div className="relative hidden w-full max-w-md sm:block">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -817,10 +900,12 @@ export function DashboardShell({
               className="grid size-7 place-items-center rounded-full text-[10px] font-semibold text-white"
               style={{ background: profile.accent }}
             >
-              {profile.short}
+              {accountInitials(account)}
             </span>
             <div className="pr-1">
-              <p className="text-xs font-medium">{profile.name}</p>
+              <p className="max-w-48 truncate text-xs font-medium">
+                {accountLabel(account)}
+              </p>
               <p className="text-[10px] text-slate-400">{profile.type}</p>
             </div>
           </div>
@@ -841,9 +926,11 @@ export function DashboardShell({
                 </span>
               </div>
               <h1 className="mt-3 text-3xl font-semibold tracking-[-.035em] text-[#17243a]">
-                {pageTitle ?? `Good morning, ${profile.greeting}`}
+                {pageTitle ?? 'Welcome back'}
               </h1>
-              <p className="mt-2 text-sm text-slate-500">{pageSubtitle ?? profile.subtitle}</p>
+              <p className="mt-2 text-sm text-slate-500">
+                {pageSubtitle ?? profile.subtitle}
+              </p>
             </div>
             <Button
               onClick={() =>
@@ -878,24 +965,31 @@ export function DashboardShell({
             </output>
           )}
           <div className="mt-7">
-            {children ?? (pageTitle ? (
-              <Card className="border-0 bg-white shadow-sm ring-1 ring-slate-200/70">
-                <CardContent className="p-6">
-                  <p className="text-sm font-medium text-slate-500">{role} workspace</p>
-                  <h2 className="mt-2 text-xl font-semibold text-[#17243a]">{pageTitle}</h2>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{pageSubtitle}</p>
-                </CardContent>
-              </Card>
-            ) : role === 'client' ? (
-              <ClientView
-                openRequest={() => setRequestOpen(true)}
-                openPayment={() => setPaymentOpen(true)}
-              />
-            ) : role === 'expert' ? (
-              <ExpertView />
-            ) : (
-              <AdminView />
-            ))}
+            {children ??
+              (pageTitle ? (
+                <Card className="border-0 bg-white shadow-sm ring-1 ring-slate-200/70">
+                  <CardContent className="p-6">
+                    <p className="text-sm font-medium text-slate-500">
+                      {role} workspace
+                    </p>
+                    <h2 className="mt-2 text-xl font-semibold text-[#17243a]">
+                      {pageTitle}
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                      {pageSubtitle}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : role === 'client' ? (
+                <ClientView
+                  openRequest={() => setRequestOpen(true)}
+                  openPayment={() => setPaymentOpen(true)}
+                />
+              ) : role === 'expert' ? (
+                <ExpertView />
+              ) : (
+                <AdminView />
+              ))}
           </div>
           {section && <WorkflowPanel role={role} section={section} />}
         </main>

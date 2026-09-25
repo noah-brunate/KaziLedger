@@ -1,19 +1,18 @@
+import {
+  supabase,
+  supabasePublishableKey,
+  supabaseUrl,
+} from '@/lib/supabase';
+
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
+  (process.env.NEXT_PUBLIC_API_URL || `${supabaseUrl}/functions/v1/api`).replace(
+    /\/$/,
+    '',
+  );
 
-const TOKEN_KEY = 'kaziledger.access_token';
-
-export function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(TOKEN_KEY);
-}
-
-export function setToken(token: string): void {
-  window.localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function clearToken(): void {
-  if (typeof window !== 'undefined') window.localStorage.removeItem(TOKEN_KEY);
+export async function signOut(): Promise<void> {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
 }
 
 export class ApiError extends Error {
@@ -28,7 +27,13 @@ export class ApiError extends Error {
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
-  const token = getToken();
+  headers.set('apikey', supabasePublishableKey);
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession();
+  if (error) throw error;
+  const token = session?.access_token;
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(`${API_URL}${path}`, {
     ...init,

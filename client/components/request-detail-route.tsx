@@ -1,6 +1,5 @@
 'use client';
 
-import Link from '@/components/static-link';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { RequestDetail } from '@/components/request-detail';
 import { useLocationSearch } from '@/lib/browser-location';
@@ -23,10 +22,8 @@ export function RequestDetailRoute({ workspace }: { workspace: Workspace }) {
       workspace={workspace}
       pageTitle="Request details"
       pageSubtitle="Choose a request before opening its details."
-    >
-      <Link className="text-sm font-medium text-blue-700" href={back}>
-        Back to {workspace === 'client' ? 'requests' : 'assignments'}
-      </Link>
-    </DashboardShell>
+      backHref={back}
+      backLabel={`Back to ${workspace === 'client' ? 'requests' : 'assignments'}`}
+    />
   );
 }

@@ -3,30 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
-
-
-class RegisterRequest(BaseModel):
-    email: EmailStr | None = None
-    phone: str | None = None
-    password: str = Field(min_length=8)
-    client_type: str = "individual"
-    role: Literal["client", "expert"] = "client"
-    accept_terms: bool
-    marketing_consent: bool = False
-
-    @model_validator(mode="after")
-    def validate_identity(self):
-        if not self.email and not self.phone:
-            raise ValueError("Email or phone is required")
-        if not self.accept_terms:
-            raise ValueError("Terms must be accepted")
-        return self
-
-
-class LoginRequest(BaseModel):
-    identifier: str
-    password: str
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class ServiceRequestCreate(BaseModel):

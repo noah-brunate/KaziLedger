@@ -3,7 +3,19 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, JSON, Numeric, String, Table, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Numeric,
+    String,
+    Table,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -12,7 +24,9 @@ from app.database import Base
 
 class Timestamped:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class UserStatus(str, enum.Enum):
@@ -66,9 +80,14 @@ class RequestStatus(str, enum.Enum):
 class User(Timestamped, Base):
     __tablename__ = "users"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    auth_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), unique=True, nullable=True, index=True
+    )
     email: Mapped[str | None] = mapped_column(String(320), unique=True)
     phone: Mapped[str | None] = mapped_column(String(32), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
+    # Retained temporarily for a safe legacy-data migration. New passwords are
+    # owned and hashed exclusively by Supabase Auth.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.active)
     client_type: Mapped[str] = mapped_column(String(24), default="individual")
     role: Mapped[str] = mapped_column(String(24), default="client")
@@ -112,7 +131,9 @@ class ServiceRequest(Timestamped, Base):
     client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     subcategory_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("service_subcategories.id"))
     assigned_expert_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
-    status: Mapped[RequestStatus] = mapped_column(Enum(RequestStatus), default=RequestStatus.matching)
+    status: Mapped[RequestStatus] = mapped_column(
+        Enum(RequestStatus), default=RequestStatus.matching
+    )
     scope_details: Mapped[dict] = mapped_column(JSON)
     rejection_count: Mapped[int] = mapped_column(default=0)
     response_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -175,8 +196,12 @@ class Wallet(Timestamped, Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # ``expert_id`` remains for compatibility with the first local schema.
     # ``user_id`` is the wallet owner for both clients and experts.
-    expert_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), unique=True, nullable=True)
-    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), unique=True, nullable=True, index=True)
+    expert_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), unique=True, nullable=True
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), unique=True, nullable=True, index=True
+    )
     balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0)
     currency: Mapped[str] = mapped_column(String(3), default="UGX")
 

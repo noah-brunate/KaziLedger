@@ -3,6 +3,7 @@ import { ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PublicServiceCatalogue } from '@/components/public-service-catalogue';
+import { BackButton } from '@/components/back-button';
 
 export default function ServicesPage() {
   return (
@@ -19,6 +20,7 @@ export default function ServicesPage() {
         </div>
       </header>
       <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
+        <BackButton href="/" label="Back home" className="mb-8" />
         <Badge className="border-blue-200 bg-blue-50 text-blue-700">Find an expert</Badge>
         <h1 className="mt-5 max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">Choose the service you need</h1>
         <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">Explore the services offered by verified professionals. The catalogue is kept current by the KaziLedger team.</p>

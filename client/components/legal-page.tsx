@@ -1,5 +1,6 @@
 import Link from '@/components/static-link';
-import { ArrowLeft, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
+import { BackButton } from '@/components/back-button';
 
 export function LegalPage({
   title,
@@ -18,13 +19,7 @@ export function LegalPage({
             <ShieldCheck />
             <strong>KaziLedger</strong>
           </Link>
-          <Link
-            href="/"
-            className="flex items-center gap-2 text-sm text-slate-500 hover:text-[#2563eb]"
-          >
-            <ArrowLeft className="size-4" />
-            Back home
-          </Link>
+          <BackButton href="/" label="Back home" />
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">

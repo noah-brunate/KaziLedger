@@ -1,5 +1,6 @@
 import Link from '@/components/static-link';
-import { ArrowLeft, ArrowRight, Check, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Check, ShieldCheck } from 'lucide-react';
+import { BackButton } from '@/components/back-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,7 +19,7 @@ export default async function ServiceDescriptionPage({
   const service = getPublicService(slug);
 
   if (!service) {
-    return <main className="grid min-h-screen place-items-center bg-[#f7f8fa] p-6"><Card><CardContent className="space-y-4 p-7"><h1 className="text-xl font-semibold">Service not found</h1><Button render={<Link href="/services" />}>Browse services</Button></CardContent></Card></main>;
+    return <main className="grid min-h-screen place-items-center bg-[#f7f8fa] p-6"><Card><CardContent className="space-y-4 p-7"><BackButton href="/services" label="Back to services" /><h1 className="text-xl font-semibold">Service not found</h1><Button render={<Link href="/services" />}>Browse services</Button></CardContent></Card></main>;
   }
 
   return (
@@ -30,7 +31,7 @@ export default async function ServiceDescriptionPage({
         </div>
       </header>
       <section className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:py-20">
-        <Link href="/services" className="inline-flex items-center gap-2 text-sm font-medium text-blue-700"><ArrowLeft className="size-4" /> Back to services</Link>
+        <BackButton href="/services" label="Back to services" />
         <Badge className="mt-8 border-blue-200 bg-blue-50 text-blue-700">Vetted specialist support</Badge>
         <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">{service.name}</h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600">{service.description}</p>
